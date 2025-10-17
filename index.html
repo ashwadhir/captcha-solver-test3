@@ -1,0 +1,197 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tesseract.js Captcha Solver</title>
+    <!-- Tesseract.js CDN for OCR capabilities -->
+    <script src="https://unpkg.com/tesseract.js@5.0.0/dist/tesseract.min.js"></script>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 20px;
+            background-color: #f0f2f5;
+            color: #333;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 90vh;
+        }
+        h1, h2 {
+            color: #2c3e50;
+            margin-bottom: 15px;
+        }
+        p {
+            margin-bottom: 10px;
+            color: #555;
+        }
+        #attachment-image-0 {
+            max-width: 300px; /* Constrain image size for better display */
+            height: auto;
+            border: 2px solid #aeb6bf;
+            padding: 5px;
+            background-color: #fff;
+            box-shadow: 0 6px 12px rgba(0,0,0,0.1);
+            border-radius: 8px;
+            margin-bottom: 25px;
+        }
+        #status, #solved-text {
+            margin-top: 20px;
+            padding: 12px 25px;
+            border-radius: 6px;
+            font-size: 1.1em;
+            text-align: center;
+            min-width: 280px;
+            max-width: 90%;
+            word-break: break-word;
+        }
+        #status {
+            background-color: #e9ecef;
+            border: 1px solid #ced4da;
+            color: #495057;
+            font-weight: normal;
+        }
+        #solved-text {
+            background-color: #d4edda;
+            border: 1px solid #28a745;
+            color: #155724;
+            font-weight: bold;
+            font-size: 1.3em;
+            letter-spacing: 0.05em;
+            margin-bottom: 30px;
+        }
+        .error-message {
+            background-color: #f8d7da !important;
+            border: 1px solid #dc3545 !important;
+            color: #721c24 !important;
+            font-weight: bold;
+        }
+        .loading-dots::after {
+            content: '.';
+            animation: dots 1s steps(5, end) infinite;
+        }
+        @keyframes dots {
+            0%, 20% { content: '.'; }
+            40% { content: '..'; }
+            60% { content: '...'; }
+            80%, 100% { content: '....'; }
+        }
+    </style>
+</head>
+<body>
+    <h1>Captcha Solver with Tesseract.js</h1>
+
+    <p>Loading the captcha image for OCR:</p>
+    <!-- PRE-BUILT ATTACHMENT ELEMENT - DO NOT MODIFY -->
+    <img id="attachment-image-0" src="##DATA_URI_PLACEHOLDER_0##" alt="sample.png">
+
+    <div id="status" aria-live="polite" aria-busy="true" class="loading-dots">Initializing...</div>
+
+    <h2>Solved Text:</h2>
+    <div id="solved-text" aria-live="assertive">Waiting for solution...</div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const imageElement = document.getElementById('attachment-image-0');
+            const statusElement = document.getElementById('status');
+            const solvedTextElement = document.getElementById('solved-text');
+
+            /**
+             * @param {string} message - The status message to display.
+             * @param {boolean} isError - True if the message is an error.
+             * @param {boolean} isBusy - True if an operation is ongoing.
+             */
+            const updateStatus = (message, isError = false, isBusy = true) => {
+                // --- DOM Safety: Check if statusElement exists ---
+                if (statusElement) {
+                    statusElement.textContent = message;
+                    statusElement.classList.toggle('error-message', isError);
+                    statusElement.classList.toggle('loading-dots', isBusy);
+                    statusElement.setAttribute('aria-busy', isBusy ? 'true' : 'false');
+                } else {
+                    console.error('Status element with ID "status" not found.');
+                }
+            };
+
+            // --- DOM Safety Checks for essential elements ---
+            if (!imageElement) {
+                console.error('Error: Image element with ID "attachment-image-0" not found.');
+                updateStatus('Error: Captcha image element not found on page.', true, false);
+                return;
+            }
+            if (!solvedTextElement) {
+                console.error('Error: Solved text display element with ID "solved-text" not found.');
+                updateStatus('Error: Display area for solved text not found.', true, false);
+                return;
+            }
+
+            updateStatus('Image is loading...');
+
+            imageElement.onload = async () => {
+                updateStatus('Image loaded. Starting OCR processing...', false, true);
+
+                try {
+                    // Create a Tesseract worker. The logger provides progress updates.
+                    const worker = await Tesseract.createWorker({
+                        // `langPath` is automatically handled by Tesseract.js from CDN
+                        logger: m => {
+                            let message = m.status;
+                            if (m.progress) {
+                                message += `: ${Math.round(m.progress * 100)}%`;
+                            }
+                            updateStatus(message, false, m.status !== 'idle');
+                        }
+                    });
+
+                    // Recognize text from the loaded image using the 'eng' language.
+                    // The imageElement itself can be passed directly.
+                    const { data: { text } } = await worker.recognize(imageElement, 'eng');
+
+                    // --- DOM Safety: Check if solvedTextElement exists ---
+                    if (solvedTextElement) {
+                        const recognizedText = text ? text.trim() : 'No text recognized.';
+                        solvedTextElement.textContent = recognizedText;
+                        // For accessibility, provide an aria-label for screen readers
+                        solvedTextElement.setAttribute('aria-label', `Solved text: ${recognizedText}`);
+                    }
+
+                    updateStatus('OCR process completed successfully!', false, false);
+                    await worker.terminate(); // Terminate the worker to free up resources.
+
+                } catch (error) {
+                    // --- API Error Handling: Catch and display errors from Tesseract.js ---
+                    console.error('Error during OCR processing:', error);
+                    updateStatus(`Error: Failed to process image. ${error.message || 'Unknown error occurred.'}`, true, false);
+                    // --- DOM Safety: Check if solvedTextElement exists ---
+                    if (solvedTextElement) {
+                        solvedTextElement.textContent = 'Error: Could not solve captcha.';
+                        solvedTextElement.classList.add('error-message');
+                        solvedTextElement.removeAttribute('aria-label'); // Remove potentially misleading label
+                    }
+                }
+            };
+
+            // Handle cases where the image itself fails to load (e.g., malformed data URI)
+            imageElement.onerror = () => {
+                console.error('Error: Failed to load the captcha image.');
+                updateStatus('Error: Failed to load the captcha image. Please check the image source.', true, false);
+                // --- DOM Safety: Check if solvedTextElement exists ---
+                if (solvedTextElement) {
+                    solvedTextElement.textContent = 'Error: Image loading failed.';
+                    solvedTextElement.classList.add('error-message');
+                    solvedTextElement.removeAttribute('aria-label');
+                }
+            };
+
+            // Important for data URIs: if the image is already fully loaded (which often happens
+            // synchronously for data URIs before the DOMContentLoaded script runs),
+            // manually trigger the onload logic to ensure OCR starts.
+            if (imageElement.complete && imageElement.naturalHeight !== 0) {
+                imageElement.onload();
+            }
+        });
+    </script>
+</body>
+</html>
